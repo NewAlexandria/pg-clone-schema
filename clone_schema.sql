@@ -1,4 +1,4 @@
--- Change History: 
+-- Change History:
 -- 2021-03-03  MJV FIX: Fixed population of tables with rows section. "buffer" variable was not initialized correctly. Used new variable, tblname, to fix it.
 -- 2021-03-03  MJV FIX: Fixed Issue#34  where user-defined types in declare section of functions caused runtime errors.
 -- 2021-03-04  MJV FIX: Fixed Issue#35  where privileges for functions were not being set correctly causing the program to bomb and giving privileges to other users that should not have gotten them.
@@ -28,7 +28,7 @@
 -- 2022-06-13  MJV FIX: Fixed Issue#75  Rows were not being copied correctly for parents.  Needed to move copy rows logic to end, after all DDL is done.
 -- 2022-06-15  MJV FIX: Fixed Issue#76  RLS is not being enabled for cloned tables.  Enable it right after the policy for the table is created
 -- 2022-06-16  MJV FIX: Fixed Issue#78  Fix case-sensitive object names by using quote_ident() all over the place. Also added restriction to not allow case-sensitive target schemas.
--- 2022-06-16  MJV FIX: Fixed Issue#78  Also, since we deferred row copies until the end, we must also defer foreign key constraints to the end as well. 
+-- 2022-06-16  MJV FIX: Fixed Issue#78  Also, since we deferred row copies until the end, we must also defer foreign key constraints to the end as well.
 -- 2022-06-18  MJV FIX: Fixed Issue#79  Fix copying of rows in tables with user-defined column datatypes using COPY method.
 -- 2022-06-29  MJV FIX: Fixed Issue#80  Fix copying of rows reported error due to arrays not being initialized properly.
 -- 2022-07-15  MJV FIX: Fixed Issue#81  Fix COPY import format for handling NULLs correctly.
@@ -52,7 +52,7 @@
 --                                      ex: INSERT INTO clone1.address2 (id2, id3, addr) SELECT id2::text::clone1.udt_myint, id3::text::clone1.udt_myint, addr FROM sample.address;
 -- 2023-05-17  MJV FIX: Fixed Issue#103 2 problems: handling multiple partitioned tables and not creating FKEYS on partitioned tables since the FKEY created on the parent already propagated down to the partitions.
 --                                      The first problem is fixed by modifying the query to work with the current table only.  The 2nd one??????
--- 2023-07-07  EVK FIX: Merged          Fixed problems with the parameters to FUNCTION clone_schema being (text, text, cloneparms[]) instead of (text, text, boolean, boolean) 
+-- 2023-07-07  EVK FIX: Merged          Fixed problems with the parameters to FUNCTION clone_schema being (text, text, cloneparms[]) instead of (text, text, boolean, boolean)
 --                                      which resulted in the example grant and the drop not working correctly. Also removed some trailing whitespace. Cheers, Ellert van Koperen.
 -- 2023-08-04  MJV FIX: Fixed Issue#105 Use the extension's schema not the table's schema.  Don't assume public schema.
 -- 2023-09-07  MJV FIX: Fixed Issue#107 Fixed via pull request#109. Increased output length of sequences and identities from 2 to 5.  Also changed SQL for gettting identities owner.
@@ -64,18 +64,20 @@
 -- 2024-01-24  MJV FIX: Fixed Issue#116: defer creation of materialized view indexes until after we create the deferred materialized views via issue#98.
 -- 2024-01-28  MJV FIX: Fixed Issue#117: Fix getting table privs SQL: string_agg wasn't working and no need to double-quote the grantee, that was only intended for owner DDL (Issue#108)
 
-do $$ 
+CREATE SCHEMA IF NOT EXISTS utils;
+
+do $$
 <<first_block>>
 DECLARE
     cnt int;
 BEGIN
-  DROP TYPE IF EXISTS public.cloneparms CASCADE;
-  CREATE TYPE public.cloneparms AS ENUM ('DATA', 'NODATA','DDLONLY','NOOWNER','NOACL','VERBOSE','DEBUG','FILECOPY');
+  DROP TYPE IF EXISTS utils.cloneparms CASCADE;
+  CREATE TYPE utils.cloneparms AS ENUM ('DATA', 'NODATA','DDLONLY','NOOWNER','NOACL','VERBOSE','DEBUG','FILECOPY');
   -- END IF;
 end first_block $$;
 
 -- Issue#114 function to fix varchar arrays
-CREATE OR REPLACE FUNCTION public.pg_get_coldef(
+CREATE OR REPLACE FUNCTION utils.pg_get_coldef(
   in_schema text,
   in_table text,
   in_column text,
@@ -88,23 +90,23 @@ $$
 DECLARE
 coldef text;
 BEGIN
-  IF oldway THEN 
-    SELECT pg_catalog.format_type(a.atttypid, a.atttypmod) INTO coldef FROM pg_namespace n, pg_class c, pg_attribute a, pg_type t 
+  IF oldway THEN
+    SELECT pg_catalog.format_type(a.atttypid, a.atttypmod) INTO coldef FROM pg_namespace n, pg_class c, pg_attribute a, pg_type t
     WHERE n.nspname = in_schema AND n.oid = c.relnamespace AND c.relname = in_table AND a.attname = in_column and a.attnum > 0 AND a.attrelid = c.oid AND a.atttypid = t.oid ORDER BY a.attnum;
   ELSE
     -- a.attrelid::regclass::text, a.attname
-    SELECT CASE WHEN a.atttypid = ANY ('{int,int8,int2}'::regtype[]) AND EXISTS (SELECT FROM pg_attrdef ad WHERE ad.adrelid = a.attrelid AND ad.adnum   = a.attnum AND 
-	  pg_get_expr(ad.adbin, ad.adrelid) = 'nextval(''' || (pg_get_serial_sequence (a.attrelid::regclass::text, a.attname))::regclass || '''::regclass)') THEN CASE a.atttypid 
-	  WHEN 'int'::regtype  THEN 'serial' WHEN 'int8'::regtype THEN 'bigserial' WHEN 'int2'::regtype THEN 'smallserial' END ELSE format_type(a.atttypid, a.atttypmod) END AS data_type  
-	  INTO coldef FROM pg_namespace n, pg_class c, pg_attribute a, pg_type t 
+    SELECT CASE WHEN a.atttypid = ANY ('{int,int8,int2}'::regtype[]) AND EXISTS (SELECT FROM pg_attrdef ad WHERE ad.adrelid = a.attrelid AND ad.adnum   = a.attnum AND
+	  pg_get_expr(ad.adbin, ad.adrelid) = 'nextval(''' || (pg_get_serial_sequence (a.attrelid::regclass::text, a.attname))::regclass || '''::regclass)') THEN CASE a.atttypid
+	  WHEN 'int'::regtype  THEN 'serial' WHEN 'int8'::regtype THEN 'bigserial' WHEN 'int2'::regtype THEN 'smallserial' END ELSE format_type(a.atttypid, a.atttypmod) END AS data_type
+	  INTO coldef FROM pg_namespace n, pg_class c, pg_attribute a, pg_type t
 	  WHERE n.nspname = in_schema AND n.oid = c.relnamespace AND c.relname = in_table AND a.attname = in_column and a.attnum > 0 AND a.attrelid = c.oid AND a.atttypid = t.oid ORDER BY a.attnum;
   END IF;
   RETURN coldef;
 END;
 $$;
 
--- select * from public.get_insert_stmt_ddl('clone1','sample','address');
-CREATE OR REPLACE FUNCTION public.get_insert_stmt_ddl(
+-- select * from utils.get_insert_stmt_ddl('clone1','sample','address');
+CREATE OR REPLACE FUNCTION utils.get_insert_stmt_ddl(
   source_schema text,
   target_schema text,
   atable text,
@@ -124,15 +126,15 @@ $$
     v_schema     text;
   BEGIN
     FOR v_colrec IN
-      SELECT c.column_name, c.data_type, c.udt_name, c.udt_schema, c.character_maximum_length, c.is_nullable, c.column_default, c.numeric_precision, c.numeric_scale, c.is_identity, c.identity_generation, c.is_generated 
+      SELECT c.column_name, c.data_type, c.udt_name, c.udt_schema, c.character_maximum_length, c.is_nullable, c.column_default, c.numeric_precision, c.numeric_scale, c.is_identity, c.identity_generation, c.is_generated
       FROM information_schema.columns c WHERE (table_schema, table_name) = (source_schema, atable) ORDER BY ordinal_position
     LOOP
-      IF v_colrec.udt_schema = 'public' THEN
-        v_schema = 'public';
+      IF v_colrec.udt_schema = 'utils' THEN
+        v_schema = 'utils';
       ELSE
         v_schema = target_schema;
       END IF;
-      
+
       v_cnt = v_cnt + 1;
       IF v_colrec.is_identity = 'YES' OR v_colrec.is_generated = 'ALWAYS' THEN
         -- skip
@@ -142,9 +144,9 @@ $$
       IF v_colrec.data_type = 'USER-DEFINED' THEN
         IF v_cols = '' THEN
           v_cols     = v_colrec.column_name;
-          IF bTextCast THEN 
+          IF bTextCast THEN
             -- v_cols_sel = v_colrec.column_name || '::text::' || v_schema || '.' || v_colrec.udt_name;
-            IF v_schema = 'public' THEN
+            IF v_schema = 'utils' THEN
               v_cols_sel = v_colrec.column_name || '::' || v_schema || '.' || v_colrec.udt_name;
             ELSE
               v_cols_sel = v_colrec.column_name || '::text::' || v_colrec.udt_name;
@@ -152,11 +154,11 @@ $$
           ELSE
             v_cols_sel = v_colrec.column_name || '::' || v_schema || '.' || v_colrec.udt_name;
           END IF;
-        ELSE 
+        ELSE
           v_cols     = v_cols     || ', ' || v_colrec.column_name;
-          IF bTextCast THEN 
+          IF bTextCast THEN
             -- v_cols_sel = v_cols_sel || ', ' || v_colrec.column_name || '::text::' || v_schema || '.' || v_colrec.udt_name;
-            IF v_schema = 'public' THEN
+            IF v_schema = 'utils' THEN
               v_cols_sel = v_cols_sel || ', ' || v_colrec.column_name || '::' || v_schema || '.' || v_colrec.udt_name;
             ELSE
               v_cols_sel = v_cols_sel || ', ' || v_colrec.column_name || '::text::' || v_colrec.udt_name;
@@ -169,7 +171,7 @@ $$
         IF v_cols = '' THEN
           v_cols     = v_colrec.column_name;
           v_cols_sel = v_colrec.column_name;
-        ELSE 
+        ELSE
           v_cols     = v_cols     || ', ' || v_colrec.column_name;
           v_cols_sel = v_cols_sel || ', ' || v_colrec.column_name;
         END IF;
@@ -177,14 +179,14 @@ $$
     END LOOP;
 
     -- put it all together and return the insert statement
-    -- INSERT INTO clone1.address2 (id2, id3, addr) SELECT id2::text::clone1.udt_myint, id3::text::clone1.udt_myint, addr FROM sample.address;    
+    -- INSERT INTO clone1.address2 (id2, id3, addr) SELECT id2::text::clone1.udt_myint, id3::text::clone1.udt_myint, addr FROM sample.address;
     v_insert_ddl = 'INSERT INTO ' || target_schema || '.' || atable || ' (' || v_cols || ') ' || 'SELECT ' || v_cols_sel || ' FROM ' || source_schema || '.' || atable || ';';
     RETURN v_insert_ddl;
   END;
 $$;
 
 
-CREATE OR REPLACE FUNCTION public.get_table_ddl_complex(
+CREATE OR REPLACE FUNCTION utils.get_table_ddl_complex(
   src_schema text,
   dst_schema text,
   in_table   text,
@@ -242,11 +244,11 @@ $$
               )
             FROM pg_constraint pc1
             --Issue#103: do not return FKEYS for partitions since we assume it is implied by the one done on the parent table, otherwise error for trying to define it again.
-            WHERE pc1.conrelid = pa.attrelid 
+            WHERE pc1.conrelid = pa.attrelid
           ),
           ''
         )
-      INTO v_buffer1  
+      INTO v_buffer1
       FROM pg_catalog.pg_attribute pa
         JOIN pg_catalog.pg_class pc ON pc.oid = pa.attrelid
           AND pc.relname = quote_ident(in_table)
@@ -255,7 +257,7 @@ $$
       WHERE pa.attnum > 0
         AND NOT pa.attisdropped
       GROUP BY pn.nspname, pc.relname, pa.attrelid;
-      
+
       ELSE
       SELECT 'CREATE TABLE '
         || quote_ident(dst_schema)
@@ -298,11 +300,11 @@ $$
               )
             FROM pg_constraint pc1
             --Issue#103: do not return FKEYS for partitions since we assume it is implied by the one done on the parent table, otherwise error for trying to define it again.
-            WHERE pc1.conrelid = pa.attrelid AND pc1.conparentid = 0 
+            WHERE pc1.conrelid = pa.attrelid AND pc1.conparentid = 0
           ),
           ''
         )
-      INTO v_buffer1  
+      INTO v_buffer1
       FROM pg_catalog.pg_attribute pa
         JOIN pg_catalog.pg_class pc ON pc.oid = pa.attrelid
           AND pc.relname = quote_ident(in_table)
@@ -319,14 +321,14 @@ $$
       WHERE c.relname = quote_ident(in_table) COLLATE pg_catalog.default AND n.nspname = quote_ident(src_schema) COLLATE pg_catalog.default;
 
       v_table_ddl := v_buffer1 || ') PARTITION BY ' || v_buffer2 || ';';
-  
+
       RETURN v_table_ddl;
   END;
 $$;
 
 
--- SELECT * FROM public.get_table_ddl('sample', 'address', True);
-CREATE OR REPLACE FUNCTION public.get_table_ddl(
+-- SELECT * FROM utils.get_table_ddl('sample', 'address', True);
+CREATE OR REPLACE FUNCTION utils.get_table_ddl(
   in_schema varchar,
   in_table varchar,
   bfkeys  boolean
@@ -408,14 +410,14 @@ $$
       v_relopts := ' WITH (' || v_temp || ')';
     END IF;
 
-    -- Issue#61 FIX: set search_path = public before we do anything to force explicit schema qualification but dont forget to set it back before exiting...
+    -- Issue#61 FIX: set search_path = utils before we do anything to force explicit schema qualification but dont forget to set it back before exiting...
     SELECT setting INTO v_src_path_old FROM pg_settings WHERE name = 'search_path';
 
     SELECT REPLACE(REPLACE(setting, '"$user"', '$user'), '$user', '"$user"') INTO v_src_path_old
     FROM pg_settings
     WHERE name = 'search_path';
     -- RAISE INFO 'DEBUG tableddl: saving old search_path: ***%***', v_src_path_old;
-    EXECUTE 'SET search_path = "public"';
+    EXECUTE 'SET search_path = "utils"';
     SELECT setting INTO v_src_path_new FROM pg_settings WHERE name = 'search_path';
 
     -- grab the oid of the table; https://www.postgresql.org/docs/8.3/catalog-pg-class.html
@@ -479,28 +481,28 @@ $$
 
     -- start the create definition
     v_table_ddl := 'CREATE TABLE ' || in_schema || '.' || in_table || ' (' || E'\n';
-    
+
     -- define all of the columns in the table; https://stackoverflow.com/a/8153081/3068233
     FOR v_colrec IN
       SELECT c.column_name, c.data_type, c.udt_name, c.udt_schema, c.character_maximum_length, c.is_nullable, c.column_default, c.numeric_precision, c.numeric_scale, c.is_identity, c.identity_generation,
-             CASE WHEN c.data_type = 'USER-DEFINED' THEN c.udt_schema || '.' || c.udt_name 
-                  WHEN c.data_type = 'ARRAY' THEN (SELECT * FROM public.pg_get_coldef(in_schema, in_table, c.column_name)) ELSE c.data_type END as coldef
+             CASE WHEN c.data_type = 'USER-DEFINED' THEN c.udt_schema || '.' || c.udt_name
+                  WHEN c.data_type = 'ARRAY' THEN (SELECT * FROM utils.pg_get_coldef(in_schema, in_table, c.column_name)) ELSE c.data_type END as coldef
       FROM information_schema.columns c WHERE (table_schema, table_name) = (in_schema, in_table) ORDER BY ordinal_position
     LOOP
       v_table_ddl := v_table_ddl || '  ' -- note: two char spacer to start, to indent the column
         || v_colrec.column_name || ' ' || v_colrec.coldef
-        || CASE WHEN v_colrec.is_identity = 'YES' 
-               THEN 
-                  CASE WHEN v_colrec.identity_generation = 'ALWAYS' 
+        || CASE WHEN v_colrec.is_identity = 'YES'
+               THEN
+                  CASE WHEN v_colrec.identity_generation = 'ALWAYS'
                       THEN ' GENERATED ALWAYS AS IDENTITY' ELSE ' GENERATED BY DEFAULT AS IDENTITY' END ELSE '' END
-        || CASE WHEN v_colrec.character_maximum_length IS NOT NULL 
+        || CASE WHEN v_colrec.character_maximum_length IS NOT NULL
                   THEN ('(' || v_colrec.character_maximum_length || ')')
-                WHEN v_colrec.numeric_precision > 0 AND v_colrec.numeric_scale > 0 
+                WHEN v_colrec.numeric_precision > 0 AND v_colrec.numeric_scale > 0
                   THEN '(' || v_colrec.numeric_precision || ',' || v_colrec.numeric_scale || ')'
            ELSE '' END || ' '
-        || CASE WHEN v_colrec.is_nullable = 'NO' 
+        || CASE WHEN v_colrec.is_nullable = 'NO'
                THEN 'NOT NULL' ELSE 'NULL' END
-        || CASE WHEN v_colrec.column_default IS NOT null 
+        || CASE WHEN v_colrec.column_default IS NOT null
                THEN (' DEFAULT ' || v_colrec.column_default) ELSE '' END
         || ',' || E'\n';
     END LOOP;
@@ -582,7 +584,7 @@ $$
           || ',' || E'\n';
       END LOOP;
     END IF;
-    
+
     -- drop the last comma before ending the create statement
     v_table_ddl = substr(v_table_ddl, 0, length(v_table_ddl) - 1) || E'\n';
     -- end the create table def but add inherits clause if valid
@@ -626,12 +628,12 @@ $$
       -- Issue#83 fix: loop through constraints and skip ones already defined
       bSkip = False;
       FOREACH constraintelement IN ARRAY constraintarr
-      LOOP 
+      LOOP
          IF constraintelement = v_indexrec.indexname THEN
              bSkip = True;
              EXIT;
          END IF;
-      END LOOP;   
+      END LOOP;
       if bSkip THEN CONTINUE; END IF;
       v_table_ddl := v_table_ddl
         || v_indexrec.indexdef
@@ -654,13 +656,13 @@ $$;
 
 -- Function: clone_schema(text, text, boolean, boolean, boolean)
 -- DROP FUNCTION clone_schema(text, text, boolean, boolean, boolean);
--- DROP FUNCTION IF EXISTS public.clone_schema(text, text, boolean, boolean);
+-- DROP FUNCTION IF EXISTS utils.clone_schema(text, text, boolean, boolean);
 
-DROP FUNCTION IF EXISTS public.clone_schema(text, text, cloneparms[]);
-CREATE OR REPLACE FUNCTION public.clone_schema(
+DROP FUNCTION IF EXISTS utils.clone_schema(text, text, cloneparms[]);
+CREATE OR REPLACE FUNCTION utils.clone_schema(
     source_schema text,
     dest_schema text,
-    VARIADIC arr public.cloneparms[] DEFAULT '{}':: public.cloneparms[])
+    VARIADIC arr utils.cloneparms[] DEFAULT '{}':: utils.cloneparms[])
   RETURNS void AS
 $BODY$
 
@@ -747,18 +749,18 @@ DECLARE
   spath_tmp        text;
   -- issue#86 fix
   isGenerated      text;
-  
+
   -- issue#91 fix
   tblowner         text;
   func_owner       text;
   func_name        text;
   func_args        text;
   func_argno       integer;
-  view_owner       text; 
+  view_owner       text;
 
-  -- issue#92    
+  -- issue#92
   calleruser       text;
-  
+
   -- issue#94
   bData            boolean := False;
   bDDLOnly         boolean := False;
@@ -768,18 +770,18 @@ DECLARE
   bNoOwner         boolean := False;
   arglen           integer;
   vargs            text;
-  avarg            public.cloneparms;
+  avarg            utils.cloneparms;
 
   -- issue#98
-  mvarray          text[] := '{}';  
+  mvarray          text[] := '{}';
   mvscopied        integer := 0;
-  
+
   -- issue#99 tablespaces
   tblspace         text;
-  
+
   -- issue#101
   bFileCopy        boolean := False;
-  
+
   t                timestamptz := clock_timestamp();
   r                timestamptz;
   s                timestamptz;
@@ -793,9 +795,9 @@ BEGIN
 
   IF 'DEBUG'   = ANY ($3) THEN bDebug = True; END IF;
   IF 'VERBOSE' = ANY ($3) THEN bVerbose = True; END IF;
-  
+
   -- IF bVerbose THEN RAISE NOTICE 'START: %',clock_timestamp() - t; END IF;
-  
+
   arglen := array_length($3, 1);
   IF arglen IS NULL THEN
     -- nothing to do, so defaults are assumed
@@ -817,24 +819,24 @@ BEGIN
       ELSEIF avarg = 'NOACL' THEN
         bNoACL = True;
       ELSEIF avarg = 'NOOWNER' THEN
-        bNoOwner = True;        
+        bNoOwner = True;
       -- issue#101 fix
       ELSEIF avarg = 'FILECOPY' THEN
         bFileCopy = True;
       END IF;
     END LOOP;
-    IF bData and bDDLOnly THEN 
+    IF bData and bDDLOnly THEN
       RAISE WARNING 'You can only specify DDLONLY or DATA, but not both.';
       RETURN;
     END IF;
-  END IF;  
-  
+  END IF;
+
   -- Get server version info to handle certain things differently based on the version.
   SELECT setting INTO sq_server_version
   FROM pg_settings
   WHERE name = 'server_version';
   SELECT version() INTO sq_version;
-  
+
   IF POSITION('compiled by Visual C++' IN sq_version) > 0 THEN
       bWindows = True;
       RAISE NOTICE 'Windows: %', sq_version;
@@ -890,14 +892,14 @@ BEGIN
 
   -- Issue#92
   SELECT current_user into calleruser;
-  
+
   -- Set the search_path to source schema. Before exiting set it back to what it was before.
   -- In order to avoid issues with the special schema name "$user" that may be
   -- returned unquoted by some applications, we ensure it remains double quoted.
   -- MJV FIX: #47
   SELECT setting INTO v_dummy FROM pg_settings WHERE name='search_path';
   IF bDebug THEN RAISE NOTICE 'DEBUG: search_path=%', v_dummy; END IF;
-  
+
   SELECT REPLACE(REPLACE(setting, '"$user"', '$user'), '$user', '"$user"') INTO src_path_old
   FROM pg_settings WHERE name = 'search_path';
 
@@ -959,9 +961,9 @@ BEGIN
     RAISE NOTICE ' Only generating DDL, not actually creating anything...';
     -- issue#95
     IF bNoOwner THEN
-        RAISE INFO 'CREATE SCHEMA %;', quote_ident(dest_schema);    
+        RAISE INFO 'CREATE SCHEMA %;', quote_ident(dest_schema);
     ELSE
-        RAISE INFO 'CREATE SCHEMA % AUTHORIZATION %;', quote_ident(dest_schema), buffer;    
+        RAISE INFO 'CREATE SCHEMA % AUTHORIZATION %;', quote_ident(dest_schema), buffer;
     END IF;
     RAISE NOTICE 'SET search_path=%;', quote_ident(dest_schema);
   ELSE
@@ -989,12 +991,12 @@ BEGIN
   action := 'Collations';
   cnt := 0;
   -- Issue#96 Handle differently based on PG Versions (PG15 rely on colliculocale, not collcolocate)
-  -- perhaps use this logic instead: COALESCE(c.collcollate, c.colliculocale) AS lc_collate, COALESCE(c.collctype, c.colliculocale) AS lc_type  
-  IF sq_server_version_num > 150000 THEN 
+  -- perhaps use this logic instead: COALESCE(c.collcollate, c.colliculocale) AS lc_collate, COALESCE(c.collctype, c.colliculocale) AS lc_type
+  IF sq_server_version_num > 150000 THEN
     FOR arec IN
-      SELECT n.nspname AS schemaname, a.rolname AS ownername, c.collname, c.collprovider, c.collcollate AS locale, 
-             'CREATE COLLATION ' || quote_ident(dest_schema) || '."' || c.collname || '" (provider = ' || 
-             CASE WHEN c.collprovider = 'i' THEN 'icu' WHEN c.collprovider = 'c' THEN 'libc' ELSE '' END || 
+      SELECT n.nspname AS schemaname, a.rolname AS ownername, c.collname, c.collprovider, c.collcollate AS locale,
+             'CREATE COLLATION ' || quote_ident(dest_schema) || '."' || c.collname || '" (provider = ' ||
+             CASE WHEN c.collprovider = 'i' THEN 'icu' WHEN c.collprovider = 'c' THEN 'libc' ELSE '' END ||
              ', locale = ''' || c.colliculocale || ''');' AS COLL_DDL
       FROM pg_collation c
           JOIN pg_namespace n ON (c.collnamespace = n.oid)
@@ -1013,11 +1015,11 @@ BEGIN
         END IF;
       END;
     END LOOP;
-  ELSIF sq_server_version_num > 100000 THEN   
+  ELSIF sq_server_version_num > 100000 THEN
     FOR arec IN
-      SELECT n.nspname AS schemaname, a.rolname AS ownername, c.collname, c.collprovider, c.collcollate AS locale, 
-             'CREATE COLLATION ' || quote_ident(dest_schema) || '."' || c.collname || '" (provider = ' || 
-             CASE WHEN c.collprovider = 'i' THEN 'icu' WHEN c.collprovider = 'c' THEN 'libc' ELSE '' END || 
+      SELECT n.nspname AS schemaname, a.rolname AS ownername, c.collname, c.collprovider, c.collcollate AS locale,
+             'CREATE COLLATION ' || quote_ident(dest_schema) || '."' || c.collname || '" (provider = ' ||
+             CASE WHEN c.collprovider = 'i' THEN 'icu' WHEN c.collprovider = 'c' THEN 'libc' ELSE '' END ||
              ', locale = ''' || c.collcollate || ''');' AS COLL_DDL
       FROM pg_collation c
           JOIN pg_namespace n ON (c.collnamespace = n.oid)
@@ -1039,8 +1041,8 @@ BEGIN
   ELSE
     -- handle 9.6 that is missing some columns in pg_collation
     FOR arec IN
-      SELECT n.nspname AS schemaname, a.rolname AS ownername, c.collname, c.collcollate AS locale, 
-             'CREATE COLLATION ' || quote_ident(dest_schema) || '."' || c.collname || '" (provider = ' || 
+      SELECT n.nspname AS schemaname, a.rolname AS ownername, c.collname, c.collcollate AS locale,
+             'CREATE COLLATION ' || quote_ident(dest_schema) || '."' || c.collname || '" (provider = ' ||
              ', locale = ''' || c.collcollate || ''');' AS COLL_DDL
       FROM pg_collation c
           JOIN pg_namespace n ON (c.collnamespace = n.oid)
@@ -1144,7 +1146,7 @@ BEGIN
       IF arec.typcategory = 'E' THEN
         IF bDDLOnly THEN
           RAISE INFO '%', arec.type_ddl;
-          
+
           --issue#95
           IF NOT bNoOwner THEN
             -- Fixed Issue#108: double-quote roles in case they have special characters
@@ -1188,7 +1190,7 @@ BEGIN
 
   -- Create sequences
   action := 'Sequences';
-  
+
   cnt := 0;
   -- fix#63  get from pg_sequences not information_schema
   -- fix#63  take 2: get it from information_schema.sequences since we need to treat IDENTITY columns differently.
@@ -1197,23 +1199,23 @@ BEGIN
   FOR object, buffer IN
     -- Fixed Issue#108:
     -- SELECT s1.sequence_name::text, s2.sequenceowner FROM information_schema.sequences s1 JOIN pg_sequences s2 ON (s1.sequence_schema = s2.schemaname AND s1.sequence_name = s2.sequencename) AND s1.sequence_schema = quote_ident(source_schema)
-    SELECT s.sequence_name::text, '"' || u.usename || '"' as owner FROM information_schema.sequences s JOIN pg_class c ON (s.sequence_name = c.relname AND s.sequence_schema = c.relnamespace::regnamespace::text) JOIN pg_user u ON (c.relowner = u.usesysid) 
+    SELECT s.sequence_name::text, '"' || u.usename || '"' as owner FROM information_schema.sequences s JOIN pg_class c ON (s.sequence_name = c.relname AND s.sequence_schema = c.relnamespace::regnamespace::text) JOIN pg_user u ON (c.relowner = u.usesysid)
     WHERE c.relkind = 'S' AND s.sequence_schema = quote_ident(source_schema)
-    UNION SELECT s.sequence_name::text, g.groname as owner FROM information_schema.sequences s JOIN pg_class c ON (s.sequence_name = c.relname AND s.sequence_schema = c.relnamespace::regnamespace::text) JOIN pg_group g ON (c.relowner = g.grosysid) 
+    UNION SELECT s.sequence_name::text, g.groname as owner FROM information_schema.sequences s JOIN pg_class c ON (s.sequence_name = c.relname AND s.sequence_schema = c.relnamespace::regnamespace::text) JOIN pg_group g ON (c.relowner = g.grosysid)
     WHERE c.relkind = 'S' AND s.sequence_schema = quote_ident(source_schema)
   LOOP
     cnt := cnt + 1;
     IF bDDLOnly THEN
       -- issue#95
       RAISE INFO '%', 'CREATE SEQUENCE ' || quote_ident(dest_schema) || '.' || quote_ident(object) || ';';
-      IF NOT bNoOwner THEN    
+      IF NOT bNoOwner THEN
         -- Fixed Issue#108: double-quote roles in case they have special characters
         RAISE INFO '%', 'ALTER  SEQUENCE ' || quote_ident(dest_schema) || '.' || quote_ident(object) || ' OWNER TO ' || buffer || ';';
       END IF;
     ELSE
       EXECUTE 'CREATE SEQUENCE ' || quote_ident(dest_schema) || '.' || quote_ident(object);
       -- issue#95
-      IF NOT bNoOwner THEN    
+      IF NOT bNoOwner THEN
         -- Fixed Issue#108: double-quote roles in case they have special characters
         EXECUTE 'ALTER SEQUENCE '  || quote_ident(dest_schema) || '.' || quote_ident(object) || ' OWNER TO ' || buffer;
       END IF;
@@ -1295,7 +1297,7 @@ BEGIN
   action := 'Tables';
   SELECT setting INTO v_dummy FROM pg_settings WHERE name='search_path';
   IF bDebug THEN RAISE NOTICE 'DEBUG: search_path=%', v_dummy; END IF;
-  
+
   cnt := 0;
   -- Issue#61 FIX: use set_config for empty string
   -- SET search_path = '';
@@ -1304,7 +1306,7 @@ BEGIN
   -- Fix#86 add isgenerated to column list
   -- Fix#91 add tblowner for setting the table ownership to that of the source
   -- Fix#99 added join to pg_tablespace
-  
+
   -- Handle PG versions greater than last major/minor version of PG 9.6.24
   IF sq_server_version_num > 90624 THEN
   FOR tblname, relpersist, bRelispart, relknd, data_type, udt_name, udt_schema, ocomment, l_child, isGenerated, tblowner, tblspace  IN
@@ -1316,12 +1318,12 @@ BEGIN
     -- Fix#86 add is_generated to column select
     -- Fix#91 add tblowner to the select
     -- Fix#105 need a different kinda distint to avoid retrieving a table twice in the case of a table with multiple USER-DEFINED datatypes using DISTINCT ON instead of just DISTINCT
-    --SELECT DISTINCT c.relname, c.relpersistence, c.relispartition, c.relkind, co.data_type, co.udt_name, co.udt_schema, obj_description(c.oid), i.inhrelid, 
+    --SELECT DISTINCT c.relname, c.relpersistence, c.relispartition, c.relkind, co.data_type, co.udt_name, co.udt_schema, obj_description(c.oid), i.inhrelid,
     --                COALESCE(co.is_generated, ''), pg_catalog.pg_get_userbyid(c.relowner) as "Owner", CASE WHEN reltablespace = 0 THEN 'pg_default' ELSE ts.spcname END as tablespace
     -- fixed #108 by enclosing owner in double quotes to avoid errors for bad characters like #.@...
-    -- SELECT DISTINCT ON (c.relname, c.relpersistence, c.relispartition, c.relkind, co.data_type) c.relname, c.relpersistence, c.relispartition, c.relkind, co.data_type, co.udt_name, co.udt_schema, obj_description(c.oid), i.inhrelid, 
-    SELECT DISTINCT ON (c.relname, c.relpersistence, c.relispartition, c.relkind, co.data_type) c.relname, c.relpersistence, c.relispartition, c.relkind, co.data_type, co.udt_name, co.udt_schema, obj_description(c.oid), i.inhrelid, 
-                    COALESCE(co.is_generated, ''), '"' || pg_catalog.pg_get_userbyid(c.relowner) || '"' as "Owner", CASE WHEN reltablespace = 0 THEN 'pg_default' ELSE ts.spcname END as tablespace                    
+    -- SELECT DISTINCT ON (c.relname, c.relpersistence, c.relispartition, c.relkind, co.data_type) c.relname, c.relpersistence, c.relispartition, c.relkind, co.data_type, co.udt_name, co.udt_schema, obj_description(c.oid), i.inhrelid,
+    SELECT DISTINCT ON (c.relname, c.relpersistence, c.relispartition, c.relkind, co.data_type) c.relname, c.relpersistence, c.relispartition, c.relkind, co.data_type, co.udt_name, co.udt_schema, obj_description(c.oid), i.inhrelid,
+                    COALESCE(co.is_generated, ''), '"' || pg_catalog.pg_get_userbyid(c.relowner) || '"' as "Owner", CASE WHEN reltablespace = 0 THEN 'pg_default' ELSE ts.spcname END as tablespace
     FROM pg_class c
         JOIN pg_namespace n ON (n.oid = c.relnamespace
                 AND n.nspname = quote_ident(source_schema)
@@ -1329,9 +1331,9 @@ BEGIN
         LEFT JOIN information_schema.columns co ON (co.table_schema = n.nspname
                 AND co.table_name = c.relname
                 AND (co.data_type = 'USER-DEFINED' OR co.is_generated = 'ALWAYS'))
-        LEFT JOIN pg_inherits i ON (c.oid = i.inhrelid) 
+        LEFT JOIN pg_inherits i ON (c.oid = i.inhrelid)
         -- issue#99 added join
-        LEFT JOIN pg_tablespace ts ON (c.reltablespace = ts.oid) 
+        LEFT JOIN pg_tablespace ts ON (c.reltablespace = ts.oid)
     ORDER BY c.relkind DESC, c.relname
   LOOP
     cnt := cnt + 1;
@@ -1356,14 +1358,14 @@ BEGIN
       IF bDDLOnly THEN
         IF data_type = 'USER-DEFINED' THEN
           -- FIXED #65, #67
-          -- SELECT * INTO buffer3 FROM public.pg_get_tabledef(quote_ident(source_schema), tblname);
-          SELECT * INTO buffer3 FROM public.get_table_ddl(quote_ident(source_schema), tblname, False);
+          -- SELECT * INTO buffer3 FROM utils.pg_get_tabledef(quote_ident(source_schema), tblname);
+          SELECT * INTO buffer3 FROM utils.get_table_ddl(quote_ident(source_schema), tblname, False);
 
           buffer3 := REPLACE(buffer3, quote_ident(source_schema) || '.', quote_ident(dest_schema) || '.');
           RAISE INFO '%', buffer3;
           -- issue#91 fix
           -- issue#95
-          IF NOT bNoOwner THEN    
+          IF NOT bNoOwner THEN
             -- Fixed Issue#108: double-quote roles in case they have special characters
             RAISE INFO 'ALTER TABLE IF EXISTS % OWNER TO %;', quote_ident(dest_schema) || '.' || tblname, tblowner;
           END IF;
@@ -1372,12 +1374,12 @@ BEGIN
             RAISE INFO '%', 'CREATE ' || buffer2 || 'TABLE ' || buffer || ' (LIKE ' || quote_ident(source_schema) || '.' || quote_ident(tblname) || ' INCLUDING ALL);';
             -- issue#91 fix
              -- issue#95
-            IF NOT bNoOwner THEN    
+            IF NOT bNoOwner THEN
               -- Fixed Issue#108: double-quote roles in case they have special characters
               RAISE INFO 'ALTER TABLE IF EXISTS % OWNER TO %;', quote_ident(dest_schema) || '.' || tblname, tblowner;
             END IF;
-            
-            -- issue#99 
+
+            -- issue#99
             IF tblspace <> 'pg_default' THEN
               -- replace with user-defined tablespace
               -- ALTER TABLE myschema.mytable SET TABLESPACE usrtblspc;
@@ -1385,13 +1387,13 @@ BEGIN
             END IF;
           ELSE
             -- FIXED #65, #67
-            -- SELECT * INTO buffer3 FROM public.pg_get_tabledef(quote_ident(source_schema), tblname);
-            SELECT * INTO buffer3 FROM public.get_table_ddl(quote_ident(source_schema), tblname, False);
+            -- SELECT * INTO buffer3 FROM utils.pg_get_tabledef(quote_ident(source_schema), tblname);
+            SELECT * INTO buffer3 FROM utils.get_table_ddl(quote_ident(source_schema), tblname, False);
             buffer3 := REPLACE(buffer3, quote_ident(source_schema) || '.', quote_ident(dest_schema) || '.');
             RAISE INFO '%', buffer3;
             -- issue#91 fix
             -- issue#95
-            IF NOT bNoOwner THEN    
+            IF NOT bNoOwner THEN
               -- Fixed Issue#108: double-quote roles in case they have special characters
               RAISE INFO 'ALTER TABLE IF EXISTS % OWNER TO %;', quote_ident(dest_schema) || '.' || tblname, tblowner;
             END IF;
@@ -1400,20 +1402,20 @@ BEGIN
       ELSE
         IF data_type = 'USER-DEFINED' THEN
           -- FIXED #65, #67
-          -- SELECT * INTO buffer3 FROM public.pg_get_tabledef(quote_ident(source_schema), tblname);
-          SELECT * INTO buffer3 FROM public.get_table_ddl(quote_ident(source_schema), tblname, False);
+          -- SELECT * INTO buffer3 FROM utils.pg_get_tabledef(quote_ident(source_schema), tblname);
+          SELECT * INTO buffer3 FROM utils.get_table_ddl(quote_ident(source_schema), tblname, False);
           buffer3 := REPLACE(buffer3, quote_ident(source_schema) || '.', quote_ident(dest_schema) || '.');
           IF bDebug THEN RAISE NOTICE 'DEBUG: tabledef01:%', buffer3; END IF;
-          -- #82: Table def should be fully qualified with target schema, 
-          --      so just make search path = public to handle extension types that should reside in public schema
-          v_dummy = 'public';
+          -- #82: Table def should be fully qualified with target schema,
+          --      so just make search path = utils to handle extension types that should reside in utils schema
+          v_dummy = 'utils';
           SELECT set_config('search_path', v_dummy, false) into v_dummy;
           lastsql = buffer3;
           EXECUTE buffer3;
           lastsql = '';
           -- issue#91 fix
           -- issue#95
-          IF NOT bNoOwner THEN    
+          IF NOT bNoOwner THEN
             -- Fixed Issue#108: double-quote roles in case they have special characters
             buffer3 = 'ALTER TABLE IF EXISTS ' || quote_ident(dest_schema) || '.' || tblname || ' OWNER TO ' || tblowner;
             lastsql = buffer3;
@@ -1429,14 +1431,14 @@ BEGIN
             lastsql = '';
             -- issue#91 fix
             -- issue#95
-            IF NOT bNoOwner THEN    
+            IF NOT bNoOwner THEN
               -- Fixed Issue#108: double-quote roles in case they have special characters
               buffer3 = 'ALTER TABLE IF EXISTS ' || quote_ident(dest_schema) || '.'  || quote_ident(tblname) || ' OWNER TO ' || tblowner;
               lastsql = buffer3;
               EXECUTE buffer3;
               lastsql = '';
             END IF;
-            
+
             -- issue#99
             IF tblspace <> 'pg_default' THEN
               -- replace with user-defined tablespace
@@ -1449,8 +1451,8 @@ BEGIN
 
           ELSE
             -- FIXED #65, #67
-            -- SELECT * INTO buffer3 FROM public.pg_get_tabledef(quote_ident(source_schema), tblname);
-            SELECT * INTO buffer3 FROM public.get_table_ddl(quote_ident(source_schema), tblname, False);
+            -- SELECT * INTO buffer3 FROM utils.pg_get_tabledef(quote_ident(source_schema), tblname);
+            SELECT * INTO buffer3 FROM utils.get_table_ddl(quote_ident(source_schema), tblname, False);
 
             buffer3 := REPLACE(buffer3, quote_ident(source_schema) || '.', quote_ident(dest_schema) || '.');
             -- set client_min_messages higher to avoid messages like this:
@@ -1482,11 +1484,11 @@ BEGIN
     ELSIF relknd = 'p' THEN
       -- define parent table and assume child tables have already been created based on top level sort order.
       -- Issue #103 Put the complex query into its own function, get_table_ddl_complex()
-      SELECT * INTO qry FROM public.get_table_ddl_complex(source_schema, dest_schema, tblname, sq_server_version_num);
+      SELECT * INTO qry FROM utils.get_table_ddl_complex(source_schema, dest_schema, tblname, sq_server_version_num);
       IF bDebug THEN RAISE NOTICE 'DEBUG: tabledef04 - %', buffer; END IF;
-      
+
       -- consider replacing complicated query above with this simple call to get_table_ddl()...
-      -- SELECT * INTO qry FROM public.get_table_ddl(quote_ident(source_schema), tblname, False);
+      -- SELECT * INTO qry FROM utils.get_table_ddl(quote_ident(source_schema), tblname, False);
       -- qry := REPLACE(qry, quote_ident(source_schema) || '.', quote_ident(dest_schema) || '.');
 
       IF bDDLOnly THEN
@@ -1499,27 +1501,27 @@ BEGIN
       ELSE
         -- Issue#103: we need to always set search_path priority to target schema when we execute DDL
         IF bDebug THEN RAISE NOTICE 'DEBUG: tabledef04 context: old search path=%  new search path=% current search path=%', src_path_old, src_path_new, v_dummy; END IF;
-        SELECT setting INTO spath_tmp FROM pg_settings WHERE name = 'search_path';   
+        SELECT setting INTO spath_tmp FROM pg_settings WHERE name = 'search_path';
         IF spath_tmp <> dest_schema THEN
           -- change it to target schema and don't forget to change it back after we execute the DDL
           spath = 'SET search_path = "' || dest_schema || '"';
           IF bDebug THEN RAISE NOTICE 'DEBUG: changing search_path --> %', spath; END IF;
           EXECUTE spath;
-          SELECT setting INTO v_dummy FROM pg_settings WHERE name = 'search_path';   
+          SELECT setting INTO v_dummy FROM pg_settings WHERE name = 'search_path';
           IF bDebug THEN RAISE NOTICE 'DEBUG: search_path changed to %', v_dummy; END IF;
         END IF;
         IF bDebug THEN RAISE NOTICE 'DEBUG: tabledef04:%', qry; END IF;
         lastsql = qry;
         EXECUTE qry;
         lastsql = '';
-        
+
         -- Issue#103
         -- Set search path back to what it was
         spath = 'SET search_path = "' || spath_tmp || '"';
         EXECUTE spath;
-        SELECT setting INTO v_dummy FROM pg_settings WHERE name = 'search_path';   
+        SELECT setting INTO v_dummy FROM pg_settings WHERE name = 'search_path';
         IF bDebug THEN RAISE NOTICE 'DEBUG: search_path changed back to %', v_dummy; END IF;
-        
+
         -- issue#91 fix
         -- issue#95
         IF NOT bNoOwner THEN
@@ -1529,16 +1531,16 @@ BEGIN
           EXECUTE buffer3;
           lastsql = '';
         END IF;
-        
+
       END IF;
       -- loop for child tables and alter them to attach to parent for specific partition method.
       -- Issue#103 fix: only loop for the table we are currently processing, tblname!
       FOR aname, part_range, object IN
         SELECT quote_ident(dest_schema) || '.' || c1.relname as tablename, pg_catalog.pg_get_expr(c1.relpartbound, c1.oid) as partrange, quote_ident(dest_schema) || '.' || c2.relname as object
         FROM pg_catalog.pg_class c1, pg_namespace n, pg_catalog.pg_inherits i, pg_class c2
-        WHERE n.nspname = quote_ident(source_schema) AND c1.relnamespace = n.oid AND c1.relkind = 'r' 
+        WHERE n.nspname = quote_ident(source_schema) AND c1.relnamespace = n.oid AND c1.relkind = 'r'
         -- Issue#103: added this condition to only work on current partitioned table.  The problem was regression testing previously only worked on one partition table clone case
-        AND c2.relname = tblname AND 
+        AND c2.relname = tblname AND
         c1.relispartition AND c1.oid=i.inhrelid AND i.inhparent = c2.oid AND c2.relnamespace = n.oid ORDER BY pg_catalog.pg_get_expr(c1.relpartbound, c1.oid) = 'DEFAULT',
         c1.oid::pg_catalog.regclass::pg_catalog.text
       LOOP
@@ -1561,7 +1563,7 @@ BEGIN
         END IF;
       END LOOP;
     END IF;
-        
+
     -- INCLUDING ALL creates new index names, we restore them to the old name.
     -- There should be no conflicts since they live in different schemas
     FOR ix_old_name, ix_new_name IN
@@ -1618,7 +1620,7 @@ BEGIN
       -- BUG for inserting rows from tables with user-defined columns
       -- INSERT INTO sample_clone.address OVERRIDING SYSTEM VALUE SELECT * FROM sample.address;
       -- ERROR:  column "id2" is of type sample_clone.udt_myint but expression is of type udt_myint
-      
+
       -- Issue#86 fix:
       -- IF data_type = 'USER-DEFINED' THEN
       IF bDebug THEN RAISE NOTICE 'DEBUG: includerecs branch  table=%  data_type=%  isgenerated=%  buffer3=%', tblname, data_type, isGenerated, buffer3; END IF;
@@ -1626,9 +1628,9 @@ BEGIN
 
         -- RAISE WARNING 'Bypassing copying rows for table (%) with user-defined data types.  You must copy them manually.', tblname;
         -- wont work --> INSERT INTO clone1.address (id2, id3, addr) SELECT cast(id2 as clone1.udt_myint), cast(id3 as clone1.udt_myint), addr FROM sample.address;
-        -- Issue#101 --> INSERT INTO clone1.address2 (id2, id3, addr) SELECT id2::text::clone1.udt_myint, id3::text::clone1.udt_myint, addr FROM sample.address; 
+        -- Issue#101 --> INSERT INTO clone1.address2 (id2, id3, addr) SELECT id2::text::clone1.udt_myint, id3::text::clone1.udt_myint, addr FROM sample.address;
 
-        -- Issue#79 implementation follows        
+        -- Issue#79 implementation follows
         -- COPY sample.statuses(id, s) TO '/tmp/statuses.txt' WITH DELIMITER AS ',';
         -- COPY sample_clone1.statuses FROM '/tmp/statuses.txt' (DELIMITER ',', NULL '');
         -- Issue#101 fix: use text cast to get around the problem.
@@ -1651,7 +1653,7 @@ BEGIN
           END IF;
         ELSE
           -- Issue#101: assume direct copy with text cast, add to separate array
-          SELECT * INTO buffer3 FROM public.get_insert_stmt_ddl(quote_ident(source_schema), quote_ident(dest_schema), quote_ident(tblname), True);
+          SELECT * INTO buffer3 FROM utils.get_insert_stmt_ddl(quote_ident(source_schema), quote_ident(dest_schema), quote_ident(tblname), True);
           tblarray3 := tblarray3 || buffer3;
         END IF;
       ELSE
@@ -1697,10 +1699,10 @@ BEGIN
         lastsql = '';
       END IF;
     END LOOP;
-    
+
     EXECUTE 'SET search_path = ' || quote_ident(source_schema) ;
   END LOOP;
-  ELSE 
+  ELSE
   -- Handle 9.6 versions 90600
   FOR tblname, relpersist, relknd, data_type, udt_name, udt_schema, ocomment, l_child, isGenerated, tblowner, tblspace  IN
     -- 2021-03-08 MJV #39 fix: change sql to get indicator of user-defined columns to issue warnings
@@ -1712,12 +1714,12 @@ BEGIN
     -- Fix#91 add tblowner to the select
     -- Fix#105 need a different kinda distint to avoid retrieving a table twice in the case of a table with multiple USER-DEFINED datatypes using DISTINCT ON instead of just DISTINCT
     -- Fixed Issue#108: double quote roles to avoid problems with special characters in OWNER TO statements
-    --SELECT DISTINCT c.relname, c.relpersistence, c.relispartition, c.relkind, co.data_type, co.udt_name, co.udt_schema, obj_description(c.oid), i.inhrelid, 
+    --SELECT DISTINCT c.relname, c.relpersistence, c.relispartition, c.relkind, co.data_type, co.udt_name, co.udt_schema, obj_description(c.oid), i.inhrelid,
     --                COALESCE(co.is_generated, ''), pg_catalog.pg_get_userbyid(c.relowner) as "Owner", CASE WHEN reltablespace = 0 THEN 'pg_default' ELSE ts.spcname END as tablespace
-    -- SELECT DISTINCT ON (c.relname, c.relpersistence, c.relkind, co.data_type) c.relname, c.relpersistence, c.relkind, co.data_type, co.udt_name, co.udt_schema, obj_description(c.oid), i.inhrelid, 
-    --                 COALESCE(co.is_generated, ''), pg_catalog.pg_get_userbyid(c.relowner) as "Owner", CASE WHEN reltablespace = 0 THEN 'pg_default' ELSE ts.spcname END as tablespace                    
-    SELECT DISTINCT ON (c.relname, c.relpersistence, c.relkind, co.data_type) c.relname, c.relpersistence, c.relkind, co.data_type, co.udt_name, co.udt_schema, obj_description(c.oid), i.inhrelid, 
-                    COALESCE(co.is_generated, ''), '"' || pg_catalog.pg_get_userbyid(c.relowner) || '"' as "Owner", CASE WHEN reltablespace = 0 THEN 'pg_default' ELSE ts.spcname END as tablespace                    
+    -- SELECT DISTINCT ON (c.relname, c.relpersistence, c.relkind, co.data_type) c.relname, c.relpersistence, c.relkind, co.data_type, co.udt_name, co.udt_schema, obj_description(c.oid), i.inhrelid,
+    --                 COALESCE(co.is_generated, ''), pg_catalog.pg_get_userbyid(c.relowner) as "Owner", CASE WHEN reltablespace = 0 THEN 'pg_default' ELSE ts.spcname END as tablespace
+    SELECT DISTINCT ON (c.relname, c.relpersistence, c.relkind, co.data_type) c.relname, c.relpersistence, c.relkind, co.data_type, co.udt_name, co.udt_schema, obj_description(c.oid), i.inhrelid,
+                    COALESCE(co.is_generated, ''), '"' || pg_catalog.pg_get_userbyid(c.relowner) || '"' as "Owner", CASE WHEN reltablespace = 0 THEN 'pg_default' ELSE ts.spcname END as tablespace
     FROM pg_class c
         JOIN pg_namespace n ON (n.oid = c.relnamespace
                 AND n.nspname = quote_ident(source_schema)
@@ -1725,9 +1727,9 @@ BEGIN
         LEFT JOIN information_schema.columns co ON (co.table_schema = n.nspname
                 AND co.table_name = c.relname
                 AND (co.data_type = 'USER-DEFINED' OR co.is_generated = 'ALWAYS'))
-        LEFT JOIN pg_inherits i ON (c.oid = i.inhrelid) 
+        LEFT JOIN pg_inherits i ON (c.oid = i.inhrelid)
         -- issue#99 added join
-        LEFT JOIN pg_tablespace ts ON (c.reltablespace = ts.oid) 
+        LEFT JOIN pg_tablespace ts ON (c.reltablespace = ts.oid)
     ORDER BY c.relkind DESC, c.relname
   LOOP
     cnt := cnt + 1;
@@ -1751,14 +1753,14 @@ BEGIN
       IF bDDLOnly THEN
         IF data_type = 'USER-DEFINED' THEN
           -- FIXED #65, #67
-          -- SELECT * INTO buffer3 FROM public.pg_get_tabledef(quote_ident(source_schema), tblname);
-          SELECT * INTO buffer3 FROM public.get_table_ddl(quote_ident(source_schema), tblname, False);
+          -- SELECT * INTO buffer3 FROM utils.pg_get_tabledef(quote_ident(source_schema), tblname);
+          SELECT * INTO buffer3 FROM utils.get_table_ddl(quote_ident(source_schema), tblname, False);
 
           buffer3 := REPLACE(buffer3, quote_ident(source_schema) || '.', quote_ident(dest_schema) || '.');
           RAISE INFO '%', buffer3;
           -- issue#91 fix
           -- issue#95
-          IF NOT bNoOwner THEN    
+          IF NOT bNoOwner THEN
             -- Fixed Issue#108: double-quote roles in case they have special characters
             RAISE INFO 'ALTER TABLE IF EXISTS % OWNER TO %;', quote_ident(dest_schema) || '.' || tblname, tblowner;
           END IF;
@@ -1767,12 +1769,12 @@ BEGIN
             RAISE INFO '%', 'CREATE ' || buffer2 || 'TABLE ' || buffer || ' (LIKE ' || quote_ident(source_schema) || '.' || quote_ident(tblname) || ' INCLUDING ALL);';
             -- issue#91 fix
              -- issue#95
-            IF NOT bNoOwner THEN    
+            IF NOT bNoOwner THEN
               -- Fixed Issue#108: double-quote roles in case they have special characters
               RAISE INFO 'ALTER TABLE IF EXISTS % OWNER TO %;', quote_ident(dest_schema) || '.' || tblname, tblowner;
             END IF;
-            
-            -- issue#99 
+
+            -- issue#99
             IF tblspace <> 'pg_default' THEN
               -- replace with user-defined tablespace
               -- ALTER TABLE myschema.mytable SET TABLESPACE usrtblspc;
@@ -1780,13 +1782,13 @@ BEGIN
             END IF;
           ELSE
             -- FIXED #65, #67
-            -- SELECT * INTO buffer3 FROM public.pg_get_tabledef(quote_ident(source_schema), tblname);
-            SELECT * INTO buffer3 FROM public.get_table_ddl(quote_ident(source_schema), tblname, False);
+            -- SELECT * INTO buffer3 FROM utils.pg_get_tabledef(quote_ident(source_schema), tblname);
+            SELECT * INTO buffer3 FROM utils.get_table_ddl(quote_ident(source_schema), tblname, False);
             buffer3 := REPLACE(buffer3, quote_ident(source_schema) || '.', quote_ident(dest_schema) || '.');
             RAISE INFO '%', buffer3;
             -- issue#91 fix
             -- issue#95
-            IF NOT bNoOwner THEN    
+            IF NOT bNoOwner THEN
               -- Fixed Issue#108: double-quote roles in case they have special characters
               RAISE INFO 'ALTER TABLE IF EXISTS % OWNER TO %;', quote_ident(dest_schema) || '.' || tblname, tblowner;
             END IF;
@@ -1795,20 +1797,20 @@ BEGIN
       ELSE
         IF data_type = 'USER-DEFINED' THEN
           -- FIXED #65, #67
-          -- SELECT * INTO buffer3 FROM public.pg_get_tabledef(quote_ident(source_schema), tblname);
-          SELECT * INTO buffer3 FROM public.get_table_ddl(quote_ident(source_schema), tblname, False);
+          -- SELECT * INTO buffer3 FROM utils.pg_get_tabledef(quote_ident(source_schema), tblname);
+          SELECT * INTO buffer3 FROM utils.get_table_ddl(quote_ident(source_schema), tblname, False);
           buffer3 := REPLACE(buffer3, quote_ident(source_schema) || '.', quote_ident(dest_schema) || '.');
           IF bDebug THEN RAISE NOTICE 'DEBUG: tabledef01:%', buffer3; END IF;
-          -- #82: Table def should be fully qualified with target schema, 
-          --      so just make search path = public to handle extension types that should reside in public schema
-          v_dummy = 'public';
+          -- #82: Table def should be fully qualified with target schema,
+          --      so just make search path = utils to handle extension types that should reside in utils schema
+          v_dummy = 'utils';
           SELECT set_config('search_path', v_dummy, false) into v_dummy;
           lastsql = buffer3;
           EXECUTE buffer3;
           lastsql = '';
           -- issue#91 fix
           -- issue#95
-          IF NOT bNoOwner THEN    
+          IF NOT bNoOwner THEN
             -- Fixed Issue#108: double-quote roles in case they have special characters
             buffer3 = 'ALTER TABLE IF EXISTS ' || quote_ident(dest_schema) || '.' || tblname || ' OWNER TO ' || tblowner;
             lastsql = buffer3;
@@ -1824,14 +1826,14 @@ BEGIN
             lastsql = '';
             -- issue#91 fix
             -- issue#95
-            IF NOT bNoOwner THEN    
+            IF NOT bNoOwner THEN
               -- Fixed Issue#108: double-quote roles in case they have special characters
               buffer3 = 'ALTER TABLE IF EXISTS ' || quote_ident(dest_schema) || '.'  || quote_ident(tblname) || ' OWNER TO ' || tblowner;
               lastsql = buffer3;
               EXECUTE buffer3;
               lastsql = '';
             END IF;
-            
+
             -- issue#99
             IF tblspace <> 'pg_default' THEN
               -- replace with user-defined tablespace
@@ -1844,8 +1846,8 @@ BEGIN
 
           ELSE
             -- FIXED #65, #67
-            -- SELECT * INTO buffer3 FROM public.pg_get_tabledef(quote_ident(source_schema), tblname);
-            SELECT * INTO buffer3 FROM public.get_table_ddl(quote_ident(source_schema), tblname, False);
+            -- SELECT * INTO buffer3 FROM utils.pg_get_tabledef(quote_ident(source_schema), tblname);
+            SELECT * INTO buffer3 FROM utils.get_table_ddl(quote_ident(source_schema), tblname, False);
 
             buffer3 := REPLACE(buffer3, quote_ident(source_schema) || '.', quote_ident(dest_schema) || '.');
             -- set client_min_messages higher to avoid messages like this:
@@ -1877,11 +1879,11 @@ BEGIN
     ELSIF relknd = 'p' THEN
       -- define parent table and assume child tables have already been created based on top level sort order.
       -- Issue #103 Put the complex query into its own function, get_table_ddl_complex()
-      SELECT * INTO qry FROM public.get_table_ddl_complex(source_schema, dest_schema, tblname, sq_server_version_num);
+      SELECT * INTO qry FROM utils.get_table_ddl_complex(source_schema, dest_schema, tblname, sq_server_version_num);
       IF bDebug THEN RAISE NOTICE 'DEBUG: tabledef04 - %', buffer; END IF;
-      
+
       -- consider replacing complicated query above with this simple call to get_table_ddl()...
-      -- SELECT * INTO qry FROM public.get_table_ddl(quote_ident(source_schema), tblname, False);
+      -- SELECT * INTO qry FROM utils.get_table_ddl(quote_ident(source_schema), tblname, False);
       -- qry := REPLACE(qry, quote_ident(source_schema) || '.', quote_ident(dest_schema) || '.');
 
       IF bDDLOnly THEN
@@ -1894,27 +1896,27 @@ BEGIN
       ELSE
         -- Issue#103: we need to always set search_path priority to target schema when we execute DDL
         IF bDebug THEN RAISE NOTICE 'DEBUG: tabledef04 context: old search path=%  new search path=% current search path=%', src_path_old, src_path_new, v_dummy; END IF;
-        SELECT setting INTO spath_tmp FROM pg_settings WHERE name = 'search_path';   
+        SELECT setting INTO spath_tmp FROM pg_settings WHERE name = 'search_path';
         IF spath_tmp <> dest_schema THEN
           -- change it to target schema and don't forget to change it back after we execute the DDL
           spath = 'SET search_path = "' || dest_schema || '"';
           IF bDebug THEN RAISE NOTICE 'DEBUG: changing search_path --> %', spath; END IF;
           EXECUTE spath;
-          SELECT setting INTO v_dummy FROM pg_settings WHERE name = 'search_path';   
+          SELECT setting INTO v_dummy FROM pg_settings WHERE name = 'search_path';
           IF bDebug THEN RAISE NOTICE 'DEBUG: search_path changed to %', v_dummy; END IF;
         END IF;
         IF bDebug THEN RAISE NOTICE 'DEBUG: tabledef04:%', qry; END IF;
         lastsql = qry;
         EXECUTE qry;
         lastsql = '';
-        
+
         -- Issue#103
         -- Set search path back to what it was
         spath = 'SET search_path = "' || spath_tmp || '"';
         EXECUTE spath;
-        SELECT setting INTO v_dummy FROM pg_settings WHERE name = 'search_path';   
+        SELECT setting INTO v_dummy FROM pg_settings WHERE name = 'search_path';
         IF bDebug THEN RAISE NOTICE 'DEBUG: search_path changed back to %', v_dummy; END IF;
-        
+
         -- issue#91 fix
         -- issue#95
         IF NOT bNoOwner THEN
@@ -1922,16 +1924,16 @@ BEGIN
           buffer3 = 'ALTER TABLE IF EXISTS ' || quote_ident(dest_schema) || '.' || quote_ident(tblname) || ' OWNER TO ' || tblowner;
           EXECUTE buffer3;
         END IF;
-        
+
       END IF;
       -- loop for child tables and alter them to attach to parent for specific partition method.
       -- Issue#103 fix: only loop for the table we are currently processing, tblname!
       FOR aname, part_range, object IN
         SELECT quote_ident(dest_schema) || '.' || c1.relname as tablename, pg_catalog.pg_get_expr(c1.relpartbound, c1.oid) as partrange, quote_ident(dest_schema) || '.' || c2.relname as object
         FROM pg_catalog.pg_class c1, pg_namespace n, pg_catalog.pg_inherits i, pg_class c2
-        WHERE n.nspname = quote_ident(source_schema) AND c1.relnamespace = n.oid AND c1.relkind = 'r' 
+        WHERE n.nspname = quote_ident(source_schema) AND c1.relnamespace = n.oid AND c1.relkind = 'r'
         -- Issue#103: added this condition to only work on current partitioned table.  The problem was regression testing previously only worked on one partition table clone case
-        AND c2.relname = tblname AND 
+        AND c2.relname = tblname AND
         c1.relispartition AND c1.oid=i.inhrelid AND i.inhparent = c2.oid AND c2.relnamespace = n.oid ORDER BY pg_catalog.pg_get_expr(c1.relpartbound, c1.oid) = 'DEFAULT',
         c1.oid::pg_catalog.regclass::pg_catalog.text
       LOOP
@@ -1954,7 +1956,7 @@ BEGIN
         END IF;
       END LOOP;
     END IF;
-        
+
     -- INCLUDING ALL creates new index names, we restore them to the old name.
     -- There should be no conflicts since they live in different schemas
     FOR ix_old_name, ix_new_name IN
@@ -2000,7 +2002,7 @@ BEGIN
 
       -- 2021-03-03  MJV FIX
       buffer := dest_schema || '.' || quote_ident(tblname);
-      
+
       -- Issue#86 fix:
       -- IF data_type = 'USER-DEFINED' THEN
       IF bDebug THEN RAISE NOTICE 'DEBUG: includerecs branch  table=%  data_type=%  isgenerated=%', tblname, data_type, isGenerated; END IF;
@@ -2008,9 +2010,9 @@ BEGIN
 
         -- RAISE WARNING 'Bypassing copying rows for table (%) with user-defined data types.  You must copy them manually.', tblname;
         -- wont work --> INSERT INTO clone1.address (id2, id3, addr) SELECT cast(id2 as clone1.udt_myint), cast(id3 as clone1.udt_myint), addr FROM sample.address;
-        -- Issue#101 --> INSERT INTO clone1.address2 (id2, id3, addr) SELECT id2::text::clone1.udt_myint, id3::text::clone1.udt_myint, addr FROM sample.address; 
+        -- Issue#101 --> INSERT INTO clone1.address2 (id2, id3, addr) SELECT id2::text::clone1.udt_myint, id3::text::clone1.udt_myint, addr FROM sample.address;
 
-        -- Issue#79 implementation follows        
+        -- Issue#79 implementation follows
         -- COPY sample.statuses(id, s) TO '/tmp/statuses.txt' WITH DELIMITER AS ',';
         -- COPY sample_clone1.statuses FROM '/tmp/statuses.txt' (DELIMITER ',', NULL '');
         -- Issue#101 fix: use text cast to get around the problem.
@@ -2033,7 +2035,7 @@ BEGIN
           END IF;
         ELSE
           -- Issue#101: assume direct copy with text cast, add to separate array
-          SELECT * INTO buffer3 FROM public.get_insert_stmt_ddl(quote_ident(source_schema), quote_ident(dest_schema), quote_ident(tblname), True);
+          SELECT * INTO buffer3 FROM utils.get_insert_stmt_ddl(quote_ident(source_schema), quote_ident(dest_schema), quote_ident(tblname), True);
           tblarray3 := tblarray3 || buffer3;
         END IF;
       ELSE
@@ -2078,12 +2080,12 @@ BEGIN
         lastsql = '';
       END IF;
     END LOOP;
-    
+
     EXECUTE 'SET search_path = ' || quote_ident(source_schema) ;
-  END LOOP;      
+  END LOOP;
   END IF;
   -- end of 90600 branch
-  
+
   RAISE NOTICE '      TABLES cloned: %', LPAD(cnt::text, 5, ' ');
 
   SELECT setting INTO v_dummy FROM pg_settings WHERE name = 'search_path';
@@ -2177,7 +2179,7 @@ BEGIN
       RAISE NOTICE '   IDENTITIES set:   %', LPAD(cnt::text, 5, ' ');
   ELSE
     -- Fixed Issue#107: set lpad from 2 to 5
-    RAISE NOTICE '   IDENTITIES set:   %', LPAD('-1'::text, 5, ' ');    
+    RAISE NOTICE '   IDENTITIES set:   %', LPAD('-1'::text, 5, ' ');
   END IF;
 
   -- Issue#78 forces us to defer FKeys until the end since we previously did row copies before FKeys
@@ -2193,25 +2195,25 @@ BEGIN
     -- MJV FIX per issue# 34
     -- SET search_path = '';
     EXECUTE 'SET search_path = ' || quote_ident(source_schema) ;
-    
+
     -- Fixed Issue#65
     -- Fixed Issue#97
     -- FOR func_oid IN SELECT oid FROM pg_proc WHERE pronamespace = src_oid AND prokind != 'a'
     IF is_prokind THEN
-      FOR func_oid, func_owner, func_name, func_args, func_argno, buffer3 IN 
+      FOR func_oid, func_owner, func_name, func_args, func_argno, buffer3 IN
           SELECT p.oid, pg_catalog.pg_get_userbyid(p.proowner), p.proname, oidvectortypes(p.proargtypes), p.pronargs,
-          CASE WHEN prokind = 'p' THEN 'PROCEDURE' WHEN prokind = 'f' THEN 'FUNCTION' ELSE '' END 
-          FROM pg_proc p WHERE p.pronamespace = src_oid AND p.prokind != 'a'          
+          CASE WHEN prokind = 'p' THEN 'PROCEDURE' WHEN prokind = 'f' THEN 'FUNCTION' ELSE '' END
+          FROM pg_proc p WHERE p.pronamespace = src_oid AND p.prokind != 'a'
       LOOP
         cnt := cnt + 1;
         SELECT pg_get_functiondef(func_oid)
         INTO qry;
-  
+
         SELECT replace(qry, quote_ident(source_schema) || '.', quote_ident(dest_schema) || '.') INTO dest_qry;
         IF bDDLOnly THEN
           RAISE INFO '%;', dest_qry;
           -- Issue#91 Fix
-          -- issue#95 
+          -- issue#95
           IF NOT bNoOwner THEN
             IF func_argno = 0 THEN
                 -- Fixed Issue#108: double-quote roles in case they have special characters
@@ -2228,7 +2230,7 @@ BEGIN
           lastsql = '';
 
           -- Issue#91 Fix
-          -- issue#95 
+          -- issue#95
           IF NOT bNoOwner THEN
             IF func_argno = 0 THEN
                 -- Fixed Issue#108: double-quote roles in case they have special characters
@@ -2260,7 +2262,7 @@ BEGIN
         END IF;
       END LOOP;
     END IF;
-  
+
     -- Create aggregate functions.
     -- Fixed Issue#65
     -- FOR func_oid IN SELECT oid FROM pg_proc WHERE pronamespace = src_oid AND prokind = 'a'
@@ -2302,7 +2304,7 @@ BEGIN
         JOIN pg_aggregate a ON a.aggfnoid = p.oid
         LEFT JOIN pg_operator op ON op.oid = a.aggsortop
         WHERE p.oid = func_oid;
-  
+
         IF bDDLOnly THEN
           RAISE INFO '%;', dest_qry;
         ELSE
@@ -2310,10 +2312,10 @@ BEGIN
           EXECUTE dest_qry;
           lastsql = '';
         END IF;
-  
+
       END LOOP;
       RAISE NOTICE '   FUNCTIONS cloned: %', LPAD(cnt::text, 5, ' ');
-  
+
     ELSE
       FOR func_oid IN SELECT oid FROM pg_proc WHERE pronamespace = src_oid AND proisagg
       LOOP
@@ -2349,7 +2351,7 @@ BEGIN
         JOIN pg_aggregate a ON a.aggfnoid = p.oid
         LEFT JOIN pg_operator op ON op.oid = a.aggsortop
         WHERE p.oid = func_oid;
-  
+
         IF bDDLOnly THEN
           RAISE INFO '%;', dest_qry;
         ELSE
@@ -2357,11 +2359,11 @@ BEGIN
           EXECUTE dest_qry;
           lastsql = '';
         END IF;
-  
+
       END LOOP;
       RAISE NOTICE '   FUNCTIONS cloned: %', LPAD(cnt::text, 5, ' ');
     END IF;
-  
+
   -- Create views
   action := 'Views';
 
@@ -2382,7 +2384,7 @@ BEGIN
   FOR srctbl, aname, view_owner, object IN
     WITH RECURSIVE views AS (
        SELECT n.nspname as schemaname, v.relname as tablename, v.oid::regclass AS viewname,
-              v.relkind = 'm' AS is_materialized, pg_catalog.pg_get_userbyid(v.relowner) as owner, 
+              v.relkind = 'm' AS is_materialized, pg_catalog.pg_get_userbyid(v.relowner) as owner,
               1 AS level
        FROM pg_depend AS d
           JOIN pg_rewrite AS r
@@ -2399,7 +2401,7 @@ BEGIN
     UNION
        -- add the views that depend on these
        SELECT n.nspname as schemaname, v.relname as tablename, v.oid::regclass AS viewname,
-              v.relkind = 'm', pg_catalog.pg_get_userbyid(v.relowner) as owner, 
+              v.relkind = 'm', pg_catalog.pg_get_userbyid(v.relowner) as owner,
               views.level + 1
        FROM views
           JOIN pg_depend AS d
@@ -2444,12 +2446,12 @@ BEGIN
     IF bDDLOnly THEN
       RAISE INFO '%', v_def;
       -- Issue#91 Fix
-      -- issue#95 
+      -- issue#95
       IF NOT bNoOwner THEN
         -- Fixed Issue#108: double-quote roles in case they have special characters
         -- RAISE INFO 'ALTER TABLE % OWNER TO %', buffer3, view_owner || ';';
         RAISE INFO 'ALTER TABLE % OWNER TO %', buffer3, '"' ||view_owner || '";';
-      END IF;        
+      END IF;
     ELSE
       -- EXECUTE 'CREATE OR REPLACE VIEW ' || buffer || ' AS ' || v_def;
       lastsql = v_def;
@@ -2457,8 +2459,8 @@ BEGIN
       lastsql = '';
       -- Issue#73: commented out comment logic for views since we do it elsewhere now.
       -- Issue#91 Fix
-      -- issue#95 
-      IF NOT bNoOwner THEN      
+      -- issue#95
+      IF NOT bNoOwner THEN
         -- Fixed Issue#108: double-quote roles in case they have special characters
         v_def = 'ALTER TABLE ' || buffer3 || ' OWNER TO ' || '"' || view_owner || '";';
         lastsql = v_def;
@@ -2488,9 +2490,9 @@ BEGIN
         -- EXECUTE 'CREATE MATERIALIZED VIEW ' || buffer || ' AS ' || buffer2 || ' WITH DATA;' ;
         buffer3 = 'CREATE MATERIALIZED VIEW ' || buffer || ' AS ' || buffer2 || ' WITH DATA;';
         mvarray := mvarray || buffer3;
-        
-        -- issue#95 
-        IF NOT bNoOwner THEN      
+
+        -- issue#95
+        IF NOT bNoOwner THEN
           -- buffer3 = 'ALTER MATERIALIZED VIEW ' || buffer || ' OWNER TO ' || view_owner || ';' ;
           -- EXECUTE buffer3;
           -- Fixed Issue#108: double-quote roles in case they have special characters
@@ -2501,16 +2503,16 @@ BEGIN
         IF bDDLOnly THEN
           RAISE INFO '%', 'CREATE MATERIALIZED VIEW ' || buffer || ' AS ' || buffer2 || ' WITH NO DATA;' ;
           -- Issue#91
-          -- issue#95 
-          IF NOT bNoOwner THEN      
+          -- issue#95
+          IF NOT bNoOwner THEN
             -- Fixed Issue#108: double-quote roles in case they have special characters
             RAISE INFO '%', 'ALTER MATERIALIZED VIEW ' || buffer || ' OWNER TO ' || view_owner || ';' ;
           END IF;
         ELSE
           EXECUTE 'CREATE MATERIALIZED VIEW ' || buffer || ' AS ' || buffer2 || ' WITH NO DATA;' ;
           -- Issue#91
-          -- issue#95 
-          IF NOT bNoOwner THEN      
+          -- issue#95
+          IF NOT bNoOwner THEN
             -- Fixed Issue#108: double-quote roles in case they have special characters
             buffer3 = 'ALTER MATERIALIZED VIEW ' || buffer || ' OWNER TO ' || view_owner || ';' ;
             lastsql = buffer3;
@@ -2531,7 +2533,7 @@ BEGIN
           ELSE
             EXECUTE 'COMMENT ON MATERIALIZED VIEW ' || quote_ident(dest_schema) || '.' || object || ' IS ''' || adef || ''';';
           END IF;
-          
+
         END IF;
       END IF;
 
@@ -2543,21 +2545,21 @@ BEGIN
         ELSE
           IF bData THEN
               -- #issue#116 defer materialized view index creations as well
-              mvarray = mvarray || adef;  
+              mvarray = mvarray || adef;
           ELSE
-              lastsql = adef; 
+              lastsql = adef;
               EXECUTE adef || ';';
               lastsql = '';
-          END IF;        
-        END IF;        
+          END IF;
+        END IF;
       END LOOP;
 
   END LOOP;
   RAISE NOTICE '   MAT VIEWS cloned: %', LPAD(cnt::text, 5, ' ');
 
   -- Issue 90 Move create functions to before views
-  
-  
+
+
   -- Issue#111: forces us to defer triggers til after we populate the tables, just like we did with FKeys (Issue#78).
   -- MV: Create Triggers
     SELECT set_config('search_path', '', false) into v_dummy;
@@ -2598,7 +2600,7 @@ BEGIN
       -- || CASE WHEN with_check IS NOT NULL THEN ' WITH CHECK (' ELSE '' END || coalesce(with_check, '') || CASE WHEN with_check IS NOT NULL THEN ');' ELSE ';' END as definition
       -- FROM pg_policies WHERE schemaname = quote_ident(source_schema) ORDER BY policyname
       SELECT schemaname as schemaname, tablename as tablename, 'CREATE POLICY ' || quote_ident(policyname) || ' ON ' || quote_ident(dest_schema) || '.' || quote_ident(tablename) || ' AS ' || permissive || ' FOR ' || cmd || ' TO '
-      ||  array_to_string(roles, ',', '*') || CASE WHEN qual is NULL THEN ' ' ELSE ' USING (' || regexp_replace(qual, E'[\\n\\r]+', ' ', 'g' )  || ')' END 
+      ||  array_to_string(roles, ',', '*') || CASE WHEN qual is NULL THEN ' ' ELSE ' USING (' || regexp_replace(qual, E'[\\n\\r]+', ' ', 'g' )  || ')' END
       || CASE WHEN with_check IS NOT NULL THEN ' WITH CHECK (' ELSE '' END || coalesce(with_check, '') || CASE WHEN with_check IS NOT NULL THEN ');' ELSE ';' END as definition
       FROM pg_policies WHERE schemaname = quote_ident(source_schema) ORDER BY policyname
     LOOP
@@ -2611,7 +2613,7 @@ BEGIN
         EXECUTE arec.definition;
         lastsql = '';
       END IF;
-    
+
       -- Issue#76: Enable row security if indicated
       SELECT c.relrowsecurity INTO abool FROM pg_class c, pg_namespace n where n.nspname = quote_ident(arec.schemaname) AND n.oid = c.relnamespace AND c.relname = quote_ident(arec.tablename) and c.relkind = 'r';
       IF abool THEN
@@ -2636,7 +2638,7 @@ BEGIN
       -- || CASE WHEN with_check IS NOT NULL THEN ' WITH CHECK (' ELSE '' END || coalesce(with_check, '') || CASE WHEN with_check IS NOT NULL THEN ');' ELSE ';' END as definition
       -- FROM pg_policies WHERE schemaname = quote_ident(source_schema) ORDER BY policyname
       SELECT schemaname as schemaname, tablename as tablename, 'CREATE POLICY ' || quote_ident(policyname) || ' ON ' || quote_ident(dest_schema) || '.' || quote_ident(tablename) || ' FOR ' || cmd || ' TO '
-      ||  array_to_string(roles, ',', '*') || CASE WHEN qual is NULL THEN ' ' ELSE ' USING (' || regexp_replace(qual, E'[\\n\\r]+', ' ', 'g' )  || ')' END 
+      ||  array_to_string(roles, ',', '*') || CASE WHEN qual is NULL THEN ' ' ELSE ' USING (' || regexp_replace(qual, E'[\\n\\r]+', ' ', 'g' )  || ')' END
       || CASE WHEN with_check IS NOT NULL THEN ' WITH CHECK (' ELSE '' END || coalesce(with_check, '') || CASE WHEN with_check IS NOT NULL THEN ');' ELSE ';' END as definition
       FROM pg_policies WHERE schemaname = quote_ident(source_schema) ORDER BY policyname
     LOOP
@@ -2648,7 +2650,7 @@ BEGIN
         EXECUTE arec.definition;
         lastsql = '';
       END IF;
-    
+
       -- Issue#76: Enable row security if indicated
       SELECT c.relrowsecurity INTO abool FROM pg_class c, pg_namespace n where n.nspname = quote_ident(arec.schemaname) AND n.oid = c.relnamespace AND c.relname = quote_ident(arec.tablename) and c.relkind = 'r';
       IF abool THEN
@@ -2661,7 +2663,7 @@ BEGIN
           lastsql = '';
         END IF;
       END IF;
-    END LOOP;  
+    END LOOP;
   END IF;
   RAISE NOTICE '    POLICIES cloned: %', LPAD(cnt::text, 5, ' ');
 
@@ -2688,17 +2690,17 @@ BEGIN
     ORDER BY ddl
   LOOP
     cnt := cnt + 1;
-    
+
     -- BAD : "COMMENT ON SEQUENCE sample_clone2.CaseSensitive_ID_seq IS 'just a comment on CaseSensitive sequence';"
     -- GOOD: "COMMENT ON SEQUENCE "CaseSensitive_ID_seq" IS 'just a comment on CaseSensitive sequence';"
-    
+
     -- Issue#98 For MVs we create comments when we create the MVs
     IF substring(qry,1,28) = 'COMMENT ON MATERIALIZED VIEW' THEN
       IF bDebug THEN RAISE NOTICE 'DEBUG: deferring comments on MVs'; END IF;
       cnt = cnt - 1;
       continue;
     END IF;
-    
+
     IF bDDLOnly THEN
       RAISE INFO '%', qry;
     ELSE
@@ -2876,7 +2878,7 @@ BEGIN
             IF arec.atype = 'function' THEN
               -- Just having execute is enough to grant all apparently.
               buffer := 'ALTER DEFAULT PRIVILEGES FOR ROLE ' || grantor || ' IN SCHEMA ' || quote_ident(dest_schema) || ' GRANT ALL ON FUNCTIONS TO "' || grantee || '";';
-            
+
               -- Issue#92 Fix
               -- set role = cm_stage_ro_grp;
               -- ALTER DEFAULT PRIVILEGES FOR ROLE cm_stage_ro_grp IN SCHEMA cm_stage GRANT REFERENCES, TRIGGER ON TABLES TO cm_stage_ro_grp;
@@ -2884,7 +2886,7 @@ BEGIN
                   -- append set role to statement
                   buffer = 'SET ROLE = ' || grantor || '; ' || buffer;
               END IF;
-            
+
               IF bDDLOnly THEN
                 RAISE INFO '%', buffer;
               ELSE
@@ -2894,12 +2896,12 @@ BEGIN
               END IF;
               -- Issue#92 Fix:
               EXECUTE 'SET ROLE = ' || calleruser;
-            
+
             ELSIF arec.atype = 'sequence' THEN
               IF POSITION('r' IN privs) > 0 AND POSITION('w' IN privs) > 0 AND POSITION('U' IN privs) > 0 THEN
                 -- arU is enough for all privs
                 buffer := 'ALTER DEFAULT PRIVILEGES FOR ROLE ' || grantor || ' IN SCHEMA ' || quote_ident(dest_schema) || ' GRANT ALL ON SEQUENCES TO "' || grantee || '";';
-              
+
                 -- Issue#92 Fix
                 IF grantor = grantee THEN
                     -- append set role to statement
@@ -2943,7 +2945,7 @@ BEGIN
                     -- append set role to statement
                     buffer = 'SET ROLE = ' || grantor || '; ' || buffer;
                 END IF;
-              
+
                 IF bDDLOnly THEN
                   RAISE INFO '%', buffer;
                 ELSE
@@ -2998,13 +3000,13 @@ BEGIN
                 END IF;
               END IF;
               buffer := 'ALTER DEFAULT PRIVILEGES FOR ROLE ' || grantor || ' IN SCHEMA ' || quote_ident(dest_schema) || ' GRANT ' || buffer2 || ' ON TABLES TO "' || grantee || '";';
-            
+
               -- Issue#92 Fix
               IF grantor = grantee THEN
                   -- append set role to statement
                   buffer = 'SET ROLE = ' || grantor || '; ' || buffer;
               END IF;
-            
+
               IF bDDLOnly THEN
                 RAISE INFO '%', buffer;
               ELSE
@@ -3020,13 +3022,13 @@ BEGIN
               IF POSITION('r' IN privs) > 0 AND POSITION('w' IN privs) > 0 AND POSITION('U' IN privs) > 0 THEN
                 -- arU is enough for all privs
                 buffer := 'ALTER DEFAULT PRIVILEGES FOR ROLE ' || grantor || ' IN SCHEMA ' || quote_ident(dest_schema) || ' GRANT ALL ON TYPES TO "' || grantee || '";';
-                
+
                 -- Issue#92 Fix
                 IF grantor = grantee THEN
                     -- append set role to statement
                     buffer = 'SET ROLE = ' || grantor || '; ' || buffer;
                 END IF;
-              
+
                 IF bDDLOnly THEN
                   RAISE INFO '%', buffer;
                 ELSE
@@ -3036,16 +3038,16 @@ BEGIN
                 END IF;
                 -- Issue#92 Fix:
                 EXECUTE 'SET ROLE = ' || calleruser;
-              
+
               ELSIF POSITION('U' IN privs) THEN
                 buffer := 'ALTER DEFAULT PRIVILEGES FOR ROLE ' || grantor || ' IN SCHEMA ' || quote_ident(dest_schema) || ' GRANT USAGE ON TYPES TO "' || grantee || '";';
-              
+
                 -- Issue#92 Fix
                 IF grantor = grantee THEN
                     -- append set role to statement
                     buffer = 'SET ROLE = ' || grantor || '; ' || buffer;
                 END IF;
-              
+
                 IF bDDLOnly THEN
                   RAISE INFO '%', buffer;
                 ELSE
@@ -3055,7 +3057,7 @@ BEGIN
                 END IF;
                 -- Issue#92 Fix:
                 EXECUTE 'SET ROLE = ' || calleruser;
-              
+
               ELSE
                 RAISE WARNING 'Unhandled TYPE Privs:: type=%  privs=%  owner=%   defaclacl=%  defaclstr=%  grantor=%  grantee=% ', arec.atype, privs, arec.owner, arec.defaclacl, arec.defaclstr, grantor, grantee;
             END IF;
@@ -3065,8 +3067,8 @@ BEGIN
         END LOOP;
       END;
     END LOOP;
-  
-    RAISE NOTICE '  DFLT PRIVS cloned: %', LPAD(cnt::text, 5, ' ');    
+
+    RAISE NOTICE '  DFLT PRIVS cloned: %', LPAD(cnt::text, 5, ' ');
   END IF; -- NO ACL BRANCH
 
   -- Issue#95 bypass if No ACL specified
@@ -3074,7 +3076,7 @@ BEGIN
     -- MV: PRIVS: schema
     -- crunchy data extension, check_access
     -- SELECT role_path, base_role, as_role, objtype, schemaname, objname, array_to_string(array_agg(privname),',') as privs  FROM all_access()
-    -- WHERE base_role != CURRENT_USER and objtype = 'schema' and schemaname = 'public' group by 1,2,3,4,5,6;
+    -- WHERE base_role != CURRENT_USER and objtype = 'schema' and schemaname = 'utils' group by 1,2,3,4,5,6;
 
     action := 'PRIVS: Schema';
     cnt := 0;
@@ -3095,7 +3097,7 @@ BEGIN
           EXECUTE arec.schema_ddl;
           lastsql = '';
         END IF;
-  
+
       END;
     END LOOP;
     RAISE NOTICE 'SCHEMA PRIVS cloned: %', LPAD(cnt::text, 5, ' ');
@@ -3127,7 +3129,7 @@ BEGIN
       END;
     END LOOP;
     RAISE NOTICE '  SEQ. PRIVS cloned: %', LPAD(cnt::text, 5, ' ');
-  END IF; -- NO ACL BRANCH    
+  END IF; -- NO ACL BRANCH
 
   -- Issue#95 bypass if No ACL specified
   IF NOT bNoACL THEN
@@ -3183,14 +3185,14 @@ BEGIN
     cnt := 0;
     FOR arec IN
       -- 2021-03-05  MJV FIX: Fixed Issue#36 for tables
-      -- Issue#78 FIX: handle case-sensitive names with quote_ident() on t.relname      
-      -- 2024-01-24  MJV FIX: Issue#117    
+      -- Issue#78 FIX: handle case-sensitive names with quote_ident() on t.relname
+      -- 2024-01-24  MJV FIX: Issue#117
       SELECT c.relkind, 'GRANT ' || tb.privilege_type || CASE WHEN c.relkind in ('r', 'p') THEN ' ON TABLE ' WHEN c.relkind in ('v', 'm')  THEN ' ON ' END ||
       quote_ident(dest_schema) || '.' || quote_ident(tb.table_name) || ' TO ' || string_agg(tb.grantee, ',') || ';' as tbl_dcl
       FROM information_schema.table_privileges tb, pg_class c, pg_namespace n
       WHERE tb.table_schema = quote_ident(source_schema) AND tb.table_name = c.relname AND c.relkind in ('r', 'p', 'v', 'm')
         AND c.relnamespace = n.oid AND n.nspname = quote_ident(source_schema)
-        GROUP BY c.relkind, tb.privilege_type, tb.table_schema, tb.table_name 
+        GROUP BY c.relkind, tb.privilege_type, tb.table_schema, tb.table_name
         ORDER BY tb.table_name, tb.privilege_type
     LOOP
       BEGIN
@@ -3217,47 +3219,47 @@ BEGIN
   -- Issue#75 moved from big table loop above to here.
   IF bData THEN
     r = clock_timestamp();
-    -- IF bVerbose THEN RAISE NOTICE 'START: copy rows %',clock_timestamp() - t; END IF;  
-    IF bVerbose THEN RAISE NOTICE 'Copying rows...'; END IF;  
+    -- IF bVerbose THEN RAISE NOTICE 'START: copy rows %',clock_timestamp() - t; END IF;
+    IF bVerbose THEN RAISE NOTICE 'Copying rows...'; END IF;
 
     EXECUTE 'SET search_path = ' || quote_ident(dest_schema) ;
     action := 'Copy Rows';
     FOREACH tblelement IN ARRAY tblarray
-    LOOP 
+    LOOP
        s = clock_timestamp();
        IF bDebug THEN RAISE NOTICE 'DEBUG1: no UDTs %', tblelement; END IF;
        lastsql = tblelement;
-       EXECUTE tblelement;       
+       EXECUTE tblelement;
        lastsql = '';
-       GET DIAGNOSTICS cnt = ROW_COUNT;  
+       GET DIAGNOSTICS cnt = ROW_COUNT;
        buffer = substring(tblelement, 13);
-       SELECT POSITION(' OVERRIDING SYSTEM VALUE SELECT ' IN buffer) INTO cnt2; 
+       SELECT POSITION(' OVERRIDING SYSTEM VALUE SELECT ' IN buffer) INTO cnt2;
        IF cnt2 = 0 THEN
            SELECT POSITION(' SELECT ' IN buffer) INTO cnt2;
-           buffer = substring(buffer,1, cnt2);       
+           buffer = substring(buffer,1, cnt2);
        ELSE
-           buffer = substring(buffer,1, cnt2);       
+           buffer = substring(buffer,1, cnt2);
        END IF;
        SELECT RPAD(buffer, 35, ' ') INTO buffer;
        cnt2 := cast(extract(epoch from (clock_timestamp() - s)) as numeric(18,3));
        IF bVerbose THEN RAISE NOTICE 'Populated cloned table, %   Rows Copied: %    seconds: %', buffer, LPAD(cnt::text, 10, ' '), LPAD(cnt2::text, 5, ' '); END IF;
        tblscopied := tblscopied + 1;
     END LOOP;
-    
+
     -- Issue#79 implementation
     -- Do same for tables with user-defined elements using copy to file method
     FOREACH tblelement IN ARRAY tblarray2
-    LOOP 
+    LOOP
        s = clock_timestamp();
        IF bDebug THEN RAISE NOTICE 'DEBUG2: UDTs %', tblelement; END IF;
        lastsql = tblelement;
-       EXECUTE tblelement;       
+       EXECUTE tblelement;
        lastsql = '';
-       GET DIAGNOSTICS cnt = ROW_COUNT;  
-       
+       GET DIAGNOSTICS cnt = ROW_COUNT;
+
        -- STATEMENT LOOKS LIKE THIS:
        -- INSERT INTO sample11.warehouses SELECT * FROM sample.warehouses;
-       -- INSERT INTO sample11.person OVERRIDING SYSTEM VALUE SELECT * FROM sample.person;  
+       -- INSERT INTO sample11.person OVERRIDING SYSTEM VALUE SELECT * FROM sample.person;
        -- COPY sample.address TO '/tmp/cloneschema.tmp' WITH DELIMITER AS ',';\
        buffer = TRIM(tblelement::text);
        -- RAISE NOTICE 'element=%', buffer;
@@ -3281,7 +3283,7 @@ BEGIN
        ELSIF cnt2 > 0 THEN
            buffer = substring(buffer, 1, cnt2-2);
        ELSIF cnt3 > 0 THEN
-           buffer = substring(buffer, 1, cnt3-1);           
+           buffer = substring(buffer, 1, cnt3-1);
        ELSIF cnt4 > 0 THEN
            -- skip the COPY TO statements
            continue;
@@ -3289,24 +3291,24 @@ BEGIN
            RAISE EXCEPTION 'Programming Error for parsing tblarray2.';
        END IF;
        -- RAISE NOTICE 'buffer2=%', buffer;
-       
+
        SELECT RPAD(buffer, 35, ' ') INTO buffer;
        -- RAISE NOTICE 'buffer3=%', buffer;
        cnt2 := cast(extract(epoch from (clock_timestamp() - s)) as numeric(18,3));
        IF bVerbose THEN RAISE NOTICE 'Populated cloned table, %   Rows Copied: %    seconds: %', buffer, LPAD(cnt::text, 10, ' '), LPAD(cnt2::text, 5, ' '); END IF;
        tblscopied := tblscopied + 1;
-    END LOOP;    
-    
-    -- Issue#101 
+    END LOOP;
+
+    -- Issue#101
     -- Do same for tables with user-defined elements using direct method with text cast
     FOREACH tblelement IN ARRAY tblarray3
-    LOOP 
+    LOOP
        s = clock_timestamp();
        IF bDebug THEN RAISE NOTICE 'DEBUG3: UDTs %', tblelement; END IF;
        lastsql = tblelement;
-       EXECUTE tblelement;       
+       EXECUTE tblelement;
        lastsql = '';
-       GET DIAGNOSTICS cnt = ROW_COUNT;  
+       GET DIAGNOSTICS cnt = ROW_COUNT;
        cnt2 = POSITION(' (' IN tblelement::text);
        IF cnt2 > 0 THEN
            buffer = substring(tblelement, 1, cnt2);
@@ -3316,17 +3318,17 @@ BEGIN
            IF bVerbose THEN RAISE NOTICE 'Populated cloned table, %   Rows Copied: %    seconds: %', buffer, LPAD(cnt::text, 10, ' '), LPAD(cnt2::text, 5, ' '); END IF;
            tblscopied := tblscopied + 1;
        END IF;
-    END LOOP;    
-    
+    END LOOP;
+
     -- Issue#98 MVs deferred until now
     FOREACH tblelement IN ARRAY mvarray
-    LOOP 
+    LOOP
        s = clock_timestamp();
        lastsql = tblelement;
-       EXECUTE tblelement;       
+       EXECUTE tblelement;
        lastsql = '';
        -- get diagnostics for MV creates or refreshes does not work, always returns 1
-       GET DIAGNOSTICS cnt = ROW_COUNT;  
+       GET DIAGNOSTICS cnt = ROW_COUNT;
        buffer = substring(tblelement, 25);
        cnt2 = POSITION(' AS ' IN buffer);
        IF cnt2 > 0 THEN
@@ -3336,15 +3338,15 @@ BEGIN
          IF bVerbose THEN RAISE NOTICE 'Populated Mat. View,    %  Rows Inserted:        ?    seconds: %', buffer, LPAD(cnt2::text, 5, ' '); END IF;
          mvscopied := mvscopied + 1;
        END IF;
-    END LOOP;    
-    
+    END LOOP;
+
     cnt := cast(extract(epoch from (clock_timestamp() - r)) as numeric(18,3));
-    IF bVerbose THEN RAISE NOTICE 'Copy rows duration: % seconds',cnt; END IF;  
+    IF bVerbose THEN RAISE NOTICE 'Copy rows duration: % seconds',cnt; END IF;
   END IF;
   RAISE NOTICE '      TABLES copied: %', LPAD(tblscopied::text, 5, ' ');
   RAISE NOTICE ' MATVIEWS refreshed: %', LPAD(mvscopied::text, 5, ' ');
 
-  
+
   -- Issue#78 forces us to defer FKeys until the end since we previously did row copies before FKeys
   --  add FK constraint
   action := 'FK Constraints';
@@ -3356,7 +3358,7 @@ BEGIN
 
   FOR qry IN
     SELECT 'ALTER TABLE ' || quote_ident(dest_schema) || '.' || quote_ident(rn.relname)
-                          || ' ADD CONSTRAINT ' || quote_ident(ct.conname) || ' ' || REPLACE(pg_get_constraintdef(ct.oid), 'REFERENCES ' || quote_ident(source_schema) || '.', 'REFERENCES ' 
+                          || ' ADD CONSTRAINT ' || quote_ident(ct.conname) || ' ' || REPLACE(pg_get_constraintdef(ct.oid), 'REFERENCES ' || quote_ident(source_schema) || '.', 'REFERENCES '
                           || quote_ident(dest_schema) || '.') || ';'
     FROM pg_constraint ct
     JOIN pg_class rn ON rn.oid = ct.conrelid
@@ -3423,7 +3425,7 @@ BEGIN
   SELECT setting INTO v_dummy FROM pg_settings WHERE name = 'search_path';
   IF bDebug THEN RAISE NOTICE 'DEBUG: setting search_path back to what it was: %', v_dummy; END IF;
   cnt := cast(extract(epoch from (clock_timestamp() - t)) as numeric(18,3));
-  IF bVerbose THEN RAISE NOTICE 'clone_schema duration: % seconds',cnt; END IF;  
+  IF bVerbose THEN RAISE NOTICE 'clone_schema duration: % seconds',cnt; END IF;
 
   EXCEPTION
      WHEN others THEN
@@ -3431,7 +3433,7 @@ BEGIN
          GET STACKED DIAGNOSTICS v_diag1 = MESSAGE_TEXT, v_diag2 = PG_EXCEPTION_DETAIL, v_diag3 = PG_EXCEPTION_HINT, v_diag4 = RETURNED_SQLSTATE, v_diag5 = PG_CONTEXT, v_diag6 = PG_EXCEPTION_CONTEXT;
          v_ret := 'line=' || v_diag6 || '. '|| v_diag4 || '. ' || v_diag1;
          -- Issue#101: added version to exception output
-         -- RAISE NOTICE 'v_diag1=%  v_diag2=%  v_diag3=%  v_diag4=%  v_diag5=%  v_diag6=%', v_diag1, v_diag2, v_diag3, v_diag4, v_diag5, v_diag6; 
+         -- RAISE NOTICE 'v_diag1=%  v_diag2=%  v_diag3=%  v_diag4=%  v_diag5=%  v_diag6=%', v_diag1, v_diag2, v_diag3, v_diag4, v_diag5, v_diag6;
          buffer2 = '';
          IF action = 'Copy Rows' AND v_diag4 = '42704' THEN
              -- Issue#105 Help user to fix the problem.
@@ -3461,5 +3463,5 @@ END;
 $BODY$
   LANGUAGE plpgsql VOLATILE  COST 100;
 
--- ALTER FUNCTION public.clone_schema(text, text, cloneparms[]) OWNER TO postgres;
--- REVOKE ALL PRIVILEGES ON FUNCTION clone_schema(text, text, cloneparms[]) FROM public;
+-- ALTER FUNCTION utils.clone_schema(text, text, cloneparms[]) OWNER TO postgres;
+-- REVOKE ALL PRIVILEGES ON FUNCTION clone_schema(text, text, cloneparms[]) FROM utils;
